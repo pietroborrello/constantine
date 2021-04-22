@@ -10,9 +10,9 @@ This is the high-level architecture of `Constantine`:
 <img src="https://user-images.githubusercontent.com/18199462/115702424-37eb6780-a369-11eb-88a5-83e6eb28e05f.png">
 <br/><br/>
 
-It outperforms prior comprehensive solutions in terms of both performance and compatibility, while also providing stronger security guarantees. For example, we show `Constantine` yields overheads as low as 16% for cache-line attacks on standard benchmarks. Moreover, `Constantine` can protect ECDSA signatures in the [wolfSSL](https://www.wolfssl.com/) embedded library to complete a constant-time modular multiplication in 8 ms.
+`Constantine` outperforms prior comprehensive solutions in terms of both performance and compatibility, while also providing stronger security guarantees. For example, we show `Constantine` yields overheads as low as 16% for cache-line attacks on standard benchmarks. Moreover, `Constantine` can protect ECDSA signatures in the [wolfSSL](https://www.wolfssl.com/) embedded library to complete a constant-time modular multiplication in 8 ms.
 
-The design behind `Constantine` is described in [*Constantine: Automatic Side-Channel Resistance Using Efficient Control and Data Flow Linearization*](https://arxiv.org/TODO) which will appear in the [CCS2021](https://www.sigsac.org/ccs/CCS2021/) conference. The code will be released when the conference starts.
+The design behind `Constantine` is described in the paper *Constantine: Automatic Side-Channel Resistance Using Efficient Control and Data Flow Linearization* (preprint available [here](http://www.diag.uniroma1.it/~delia/papers/ccs21.pdf) or on [arxiv](https://arxiv.org/TODO)) which will appear in the [ACM CCS 2021](https://www.sigsac.org/ccs/CCS2021/) conference. The code will be released when the conference starts.
 
 ## Cite
 ```
@@ -24,6 +24,5 @@ The design behind `Constantine` is described in [*Constantine: Automatic Side-Ch
     booktitle = {Proceedings of the 2021 ACM SIGSAC Conference on Computer and Communications Security},
     location = {Seoul, South Korea},
     series = {CCS '21},
-    note = {\url{https://arxiv.org/abs/TODO}}
 }
 ```
