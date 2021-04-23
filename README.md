@@ -12,7 +12,10 @@ This is the high-level architecture of `Constantine`:
 
 `Constantine` outperforms prior comprehensive solutions in terms of both performance and compatibility, while also providing stronger security guarantees. For example, we show `Constantine` yields overheads as low as 16% for cache-line attacks on standard benchmarks. Moreover, `Constantine` can protect ECDSA signatures in the [wolfSSL](https://www.wolfssl.com/) embedded library to complete a constant-time modular multiplication in 8 ms.
 
-The design behind `Constantine` is described in the paper *Constantine: Automatic Side-Channel Resistance Using Efficient Control and Data Flow Linearization* (preprint available [here](http://www.diag.uniroma1.it/~delia/papers/ccs21.pdf) or on [arxiv](https://arxiv.org/TODO)) which will appear in the [ACM CCS 2021](https://www.sigsac.org/ccs/CCS2021/) conference. The code will be released when the conference starts.
+The design behind `Constantine` is described in the paper *Constantine: Automatic Side-Channel Resistance Using Efficient Control and Data Flow Linearization* (preprint available [here](http://www.diag.uniroma1.it/~delia/papers/ccs21.pdf) or on [arXiv](https://arxiv.org/abs/2104.10749)) which will appear in the [ACM CCS 2021](https://www.sigsac.org/ccs/CCS2021/) conference. 
+
+## Access to code
+The code will be released by the conference date.
 
 ## Cite
 ```
