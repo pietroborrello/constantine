@@ -27,5 +27,6 @@ The code will be released by the conference date.
     booktitle = {Proceedings of the 2021 ACM SIGSAC Conference on Computer and Communications Security},
     location = {Seoul, South Korea},
     series = {CCS '21},
+    doi={10.1145/3460120.3484583},
 }
 ```
