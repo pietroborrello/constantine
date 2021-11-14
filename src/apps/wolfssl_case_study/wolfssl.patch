@@ -1,0 +1,167 @@
+From b9b8a0eb099a8576ef90b72540e1572e150a2105 Mon Sep 17 00:00:00 2001
+From: Pietro Borrello <borrello@diag.uniroma1.it>
+Date: Sun, 14 Nov 2021 22:34:30 +0100
+Subject: Avoid sliding window implementation
+
+---
+ .gitignore                     |  2 +
+ m4/ax_harden_compiler_flags.m4 |  2 +
+ wolfcrypt/src/ecc.c            | 67 +++++++++++++++++++---------------
+ 3 files changed, 42 insertions(+), 29 deletions(-)
+
+diff --git a/.gitignore b/.gitignore
+index 91b6af694..bd588d96b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -336,3 +336,5 @@ IDE/XCODE/Index
+ /IDE/Renesas/e2studio/Projects/test/trash
+ /IDE/Renesas/e2studio/Projects/test/*.launch
+ /IDE/Renesas/e2studio/Projects/test/*.scfg
++
++*.bc
+\ No newline at end of file
+diff --git a/m4/ax_harden_compiler_flags.m4 b/m4/ax_harden_compiler_flags.m4
+index 908855626..c29eb5015 100644
+--- a/m4/ax_harden_compiler_flags.m4
++++ b/m4/ax_harden_compiler_flags.m4
+@@ -158,6 +158,7 @@
+       AX_APPEND_COMPILE_FLAGS([-Wunused-variable],,[$ax_append_compile_cflags_extra])
+       AX_APPEND_COMPILE_FLAGS([-Wwrite-strings],,[$ax_append_compile_cflags_extra])
+       AX_APPEND_COMPILE_FLAGS([-fwrapv],,[$ax_append_compile_cflags_extra])
++      AX_APPEND_COMPILE_FLAGS([-fno-unroll-loops],,[$ax_append_compile_cflags_extra])
+       AC_LANG_POP
+       ])
+ 
+@@ -220,6 +221,7 @@
+       AX_APPEND_COMPILE_FLAGS([-Wunused-result],,[$ax_append_compile_cxxflags_extra])
+       AX_APPEND_COMPILE_FLAGS([-Wunused-variable],,[$ax_append_compile_cxxflags_extra])
+       AX_APPEND_COMPILE_FLAGS([-Wwrite-strings],,[$ax_append_compile_cxxflags_extra])
++      AX_APPEND_COMPILE_FLAGS([-fno-unroll-loops],,[$ax_append_compile_cxxflags_extra])
+       AX_APPEND_COMPILE_FLAGS([-Wformat-security],,[$ax_append_compile_cxxflags_extra])
+       AX_APPEND_COMPILE_FLAGS([-fwrapv],,[$ax_append_compile_cxxflags_extra])
+       AC_LANG_POP
+diff --git a/wolfcrypt/src/ecc.c b/wolfcrypt/src/ecc.c
+index 6e4630816..fe74306e8 100644
+--- a/wolfcrypt/src/ecc.c
++++ b/wolfcrypt/src/ecc.c
+@@ -2424,9 +2424,10 @@ int ecc_map(ecc_point* P, mp_int* modulus, mp_digit mp)
+ 
+ #ifndef ECC_TIMING_RESISTANT
+ 
+-/* size of sliding window, don't change this! */
+-#define WINSIZE  4
+-#define M_POINTS 8
++/* size of sliding window, change at your risk! */
++#define WINSIZE       1
++#define M_POINTS      1 /* == 2^(WINSIZE-1) */
++#define LOG2_M_POINTS 0 /* == log2(M_POINTS) */
+ 
+ static int ecc_mulmod(mp_int* k, ecc_point* tG, ecc_point* R, ecc_point** M,
+     mp_int* a, mp_int* modulus, mp_digit mp, WC_RNG* rng)
+@@ -2439,19 +2440,24 @@ static int ecc_mulmod(mp_int* k, ecc_point* tG, ecc_point* R, ecc_point** M,
+ 
+    (void)rng;
+ 
+-   /* calc the M tab, which holds kG for k==8..15 */
+-   /* M[0] == 8G */
++   /* calc the M tab, which holds kG for k==M_POINTS..2*M_POINTS-1 */
++   /* M[0] == M_POINTS*G */
+    if (err == MP_OKAY)
+-       err = ecc_projective_dbl_point(tG, M[0], a, modulus, mp);
++       err = mp_copy(tG->x, M[0]->x);
+    if (err == MP_OKAY)
+-       err = ecc_projective_dbl_point(M[0], M[0], a, modulus, mp);
++       err = mp_copy(tG->y, M[0]->y);
+    if (err == MP_OKAY)
+-       err = ecc_projective_dbl_point(M[0], M[0], a, modulus, mp);
++       err = mp_copy(tG->z, M[0]->z);
++   
++   for (j = 0; j < LOG2_M_POINTS; j++) {
++       if (err == MP_OKAY)
++           err = ecc_projective_dbl_point(M[0], M[0], a, modulus, mp);
++   }
+ 
+-   /* now find (8+k)G for k=1..7 */
++   /* now find (M_POINTS+k)G for k=1..(M_POINTS-1) */
+    if (err == MP_OKAY)
+-       for (j = 9; j < 16; j++) {
+-           err = ecc_projective_add_point(M[j-9], tG, M[j-M_POINTS], a, modulus,
++       for (j = M_POINTS+1; j < 2*M_POINTS; j++) {
++           err = ecc_projective_add_point(M[j-(M_POINTS+1)], tG, M[j-M_POINTS], a, modulus,
+                                                                             mp);
+            if (err != MP_OKAY) break;
+        }
+@@ -2518,7 +2524,7 @@ static int ecc_mulmod(mp_int* k, ecc_point* tG, ecc_point* R, ecc_point** M,
+                    }
+                    if (err != MP_OKAY) break;  /* out of first for(;;) */
+ 
+-                   /* now add, bitbuf will be 8..15 [8..2^WINSIZE] guaranteed */
++                   /* now add, bitbuf will be [2^(WINSIZE-1)..2^WINSIZE] guaranteed */
+                    err = ecc_projective_add_point(R, M[bitbuf-M_POINTS], R, a,
+                                                                    modulus, mp);
+                }
+@@ -2532,7 +2538,8 @@ static int ecc_mulmod(mp_int* k, ecc_point* tG, ecc_point* R, ecc_point** M,
+ 
+    /* if bits remain then double/add */
+    if (err == MP_OKAY) {
+-       if (mode == 2 && bitcpy > 0) {
++       // insert check on bitbuf to avoid implicit flow
++       if (bitbuf<0xffffff && mode == 2 && bitcpy > 0) {
+            /* double then add */
+            for (j = 0; j < bitcpy; j++) {
+                /* only double if we have had at least one add first */
+@@ -2927,16 +2934,17 @@ int wc_ecc_mulmod_ex(mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
+ #endif /* WOLFSSL_SMALL_STACK_CACHE */
+ 
+   /* alloc ram for window temps */
+-  for (i = 0; i < M_POINTS; i++) {
+-      M[i] = wc_ecc_new_point_h(heap);
+-      if (M[i] == NULL) {
+-         err = MEMORY_E;
+-         goto exit;
+-      }
++    _Static_assert(M_POINTS == 1, "Code relies on M_POINTS being exactly 1");
++    i = 0;
++    M[i] = wc_ecc_new_point_h(heap);
++    if (M[i] == NULL) {
++        err = MEMORY_E;
++        goto exit;
++    }
+ #ifdef WOLFSSL_SMALL_STACK_CACHE
+-      M[i]->key = &key;
++    M[i]->key = &key;
+ #endif
+-  }
++    ++i;
+ 
+    /* make a copy of G in case R==G */
+    tG = wc_ecc_new_point_h(heap);
+@@ -3044,16 +3052,17 @@ int wc_ecc_mulmod_ex2(mp_int* k, ecc_point *G, ecc_point *R, mp_int* a,
+ #endif /* WOLFSSL_SMALL_STACK_CACHE */
+ 
+   /* alloc ram for window temps */
+-  for (i = 0; i < M_POINTS; i++) {
+-      M[i] = wc_ecc_new_point_h(heap);
+-      if (M[i] == NULL) {
+-         err = MEMORY_E;
+-         goto exit;
+-      }
++    _Static_assert(M_POINTS == 1, "Code relies on M_POINTS being exactly 1");
++    i = 0;
++    M[i] = wc_ecc_new_point_h(heap);
++    if (M[i] == NULL) {
++        err = MEMORY_E;
++        goto exit;
++    }
+ #ifdef WOLFSSL_SMALL_STACK_CACHE
+-      M[i]->key = &key;
++    M[i]->key = &key;
+ #endif
+-  }
++    ++i;
+ 
+    /* make a copy of G in case R==G */
+    tG = wc_ecc_new_point_h(heap);
+-- 
+2.17.1
+

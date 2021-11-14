@@ -1,0 +1,44 @@
+From be72491908e7020af6177b01b69ce84fbea0e46b Mon Sep 17 00:00:00 2001
+From: Elia Geretto <elia.f.geretto@gmail.com>
+Date: Fri, 14 Feb 2020 15:50:57 +0100
+Subject: [PATCH] Add support to build libcxx and libcxxabi with DFSan
+​
+---
+ libcxx/CMakeLists.txt                      | 6 ++++++
+ llvm/cmake/modules/HandleLLVMOptions.cmake | 3 +++
+ 2 files changed, 9 insertions(+)
+​
+diff --git a/libcxx/CMakeLists.txt b/libcxx/CMakeLists.txt
+index ec1869ddc7a..54460ae41ee 100644
+--- a/libcxx/CMakeLists.txt
++++ b/libcxx/CMakeLists.txt
+@@ -692,6 +692,12 @@ function(get_sanitizer_flags OUT_VAR  USE_SANITIZER)
+       append_flags(SANITIZER_FLAGS "-fsanitize=undefined -fno-sanitize=vptr,function -fno-sanitize-recover=all")
+     elseif (USE_SANITIZER STREQUAL "Thread")
+       append_flags(SANITIZER_FLAGS -fsanitize=thread)
++    elseif (USE_SANITIZER STREQUAL "DataFlow")
++      if (NOT ${LIBCXX_ENABLE_SHARED})
++        append_flags(SANITIZER_FLAGS "-fsanitize=dataflow")
++      else()
++        message(WARNING "LLVM_USE_SANITIZER=DataFlow cannot be used with LIBCXX_ENABLE_SHARED")
++      endif()
+     else()
+       message(WARNING "Unsupported value of LLVM_USE_SANITIZER: ${USE_SANITIZER}")
+     endif()
+diff --git a/llvm/cmake/modules/HandleLLVMOptions.cmake b/llvm/cmake/modules/HandleLLVMOptions.cmake
+index 4425eb91a5f..8869889a959 100644
+--- a/llvm/cmake/modules/HandleLLVMOptions.cmake
++++ b/llvm/cmake/modules/HandleLLVMOptions.cmake
+@@ -739,6 +739,9 @@ if(LLVM_USE_SANITIZER)
+     elseif (LLVM_USE_SANITIZER STREQUAL "Leaks")
+       append_common_sanitizer_flags()
+       append("-fsanitize=leak" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
++    elseif (LLVM_USE_SANITIZER STREQUAL "DataFlow")
++      append_common_sanitizer_flags()
++      append("-fsanitize=dataflow" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+     else()
+       message(FATAL_ERROR "Unsupported value of LLVM_USE_SANITIZER: ${LLVM_USE_SANITIZER}")
+     endif()
+-- 
+2.24.1
+​

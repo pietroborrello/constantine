@@ -1,0 +1,1223 @@
+From ee6d053d0aa79587ee199627621c3cd0fa3070d7 Mon Sep 17 00:00:00 2001
+From: Pietro Borrello <borrello@diag.uniroma1.it>
+Date: Fri, 13 Nov 2020 19:34:42 +0100
+Subject: Add Support for 64bit NodeID, add mode to prevent Andersent to make
+ objs FI
+
+---
+ include/Graphs/GenericGraph.h       |   4 +-
+ include/Graphs/PAG.h                |   4 +-
+ include/MSSA/MemRegion.h            |   2 +-
+ include/MemoryModel/ConditionalPT.h |   2 +-
+ include/Util/SCC.h                  |  10 +-
+ include/Util/SVFBasicTypes.h        |  18 +-
+ include/Util/SVFUtil.h              |   4 +-
+ include/Util/SparseBitVector64.h    | 888 ++++++++++++++++++++++++++++
+ lib/Graphs/ConsG.cpp                |   4 +-
+ lib/Graphs/PAG.cpp                  |   5 +
+ lib/SVF-FE/SymbolTableInfo.cpp      |   2 +-
+ lib/Util/SVFUtil.cpp                |   4 +-
+ lib/WPA/Andersen.cpp                |  30 +-
+ 13 files changed, 944 insertions(+), 33 deletions(-)
+ create mode 100644 include/Util/SparseBitVector64.h
+
+diff --git a/include/Graphs/GenericGraph.h b/include/Graphs/GenericGraph.h
+index d2c618d..190cf41 100644
+--- a/include/Graphs/GenericGraph.h
++++ b/include/Graphs/GenericGraph.h
+@@ -447,7 +447,7 @@ struct GraphTraits<Inverse<GenericNode<NodeTy,EdgeTy>* > > {
+         return edge->getSrcNode();
+     }
+ 
+-    static inline unsigned getNodeID(const NodeType* N) {
++    static inline NodeID getNodeID(const NodeType* N) {
+         return N->getId();
+     }
+ };
+@@ -484,7 +484,7 @@ template<class NodeTy,class EdgeTy> struct GraphTraits<GenericGraph<NodeTy,EdgeT
+         return G->getTotalNodeNum();
+     }
+ 
+-    static inline unsigned getNodeID(NodeType* N) {
++    static inline NodeID getNodeID(NodeType* N) {
+         return N->getId();
+     }
+     static NodeType* getNode(GenericGraphTy *G, NodeID id) {
+diff --git a/include/Graphs/PAG.h b/include/Graphs/PAG.h
+index 78742b3..e6d4d2d 100644
+--- a/include/Graphs/PAG.h
++++ b/include/Graphs/PAG.h
+@@ -522,10 +522,10 @@ public:
+     }
+     //@}
+ 
+-    inline u32_t getNodeNumAfterPAGBuild() const {
++    inline NodeID getNodeNumAfterPAGBuild() const {
+         return nodeNumAfterPAGBuild;
+     }
+-    inline void setNodeNumAfterPAGBuild(u32_t num) {
++    inline void setNodeNumAfterPAGBuild(NodeID num) {
+         nodeNumAfterPAGBuild = num;
+     }
+ 
+diff --git a/include/MSSA/MemRegion.h b/include/MSSA/MemRegion.h
+index a1d3928..7c2ea90 100644
+--- a/include/MSSA/MemRegion.h
++++ b/include/MSSA/MemRegion.h
+@@ -80,7 +80,7 @@ public:
+         for (PointsTo::iterator ii = cptsSet.begin(), ie = cptsSet.end();
+                 ii != ie; ii++) {
+             char int2str[16];
+-            sprintf(int2str, "%d", *ii);
++            sprintf(int2str, "%ld", *ii);
+             str += int2str;
+             str += " ";
+         }
+diff --git a/include/MemoryModel/ConditionalPT.h b/include/MemoryModel/ConditionalPT.h
+index 97d34f1..84f86fb 100644
+--- a/include/MemoryModel/ConditionalPT.h
++++ b/include/MemoryModel/ConditionalPT.h
+@@ -614,7 +614,7 @@ public:
+             for (NodeBS::iterator ii = pts.begin(), ie = pts.end();
+                     ii != ie; ii++) {
+                 char int2str[16];
+-                sprintf(int2str, "%d", *ii);
++                sprintf(int2str, "%ld", *ii);
+                 str += int2str;
+                 str += " ";
+             }
+diff --git a/include/Util/SCC.h b/include/Util/SCC.h
+index c30edf9..cceea3a 100644
+--- a/include/Util/SCC.h
++++ b/include/Util/SCC.h
+@@ -57,14 +57,14 @@ private:
+     typedef typename GTraits::NodeRef          GNODE;
+     typedef typename GTraits::nodes_iterator node_iterator;
+     typedef typename GTraits::ChildIteratorType child_iterator;
+-    typedef unsigned NodeID ;
++    typedef unsigned long long NodeID ;
+ 
+ public:
+     typedef std::stack<NodeID> GNodeStack;
+ 
+     class GNodeSCCInfo {
+     public:
+-        GNodeSCCInfo() : _visited(false), _inSCC(false), _rep(UINT_MAX) {}
++        GNodeSCCInfo() : _visited(false), _inSCC(false), _rep(ULONG_MAX) {}
+ 
+         inline bool visited(void) const {
+             return _visited;
+@@ -125,7 +125,7 @@ public:
+         typename GNODESCCInfoMap::const_iterator it = _NodeSCCAuxInfo.find(n);
+         assert(it!=_NodeSCCAuxInfo.end() && "scc rep not found");
+         NodeID rep = it->second.rep();
+-        return rep!= UINT_MAX ? rep : n ;
++        return rep!= ULONG_MAX ? rep : n ;
+     }
+ 
+ 
+@@ -281,7 +281,7 @@ public:
+                 // merging optimizations.  Any such node should have no
+                 // outgoing edges and therefore should no longer be a member
+                 // of an SCC.
+-                if (this->rep(node) == UINT_MAX || this->rep(node) == node)
++                if (this->rep(node) == ULONG_MAX || this->rep(node) == node)
+                     visit(node);
+                 else
+                     this->visited(node);
+@@ -294,7 +294,7 @@ public:
+         clear();
+         for (NodeID node : candidates) {
+             if (!this->visited(node)) {
+-                if (this->rep(node) == UINT_MAX || this->rep(node) == node)
++                if (this->rep(node) == ULONG_MAX || this->rep(node) == node)
+                     visit(node);
+                 else
+                     this->visited(node);
+diff --git a/include/Util/SVFBasicTypes.h b/include/Util/SVFBasicTypes.h
+index 84ccd9d..48c4525 100644
+--- a/include/Util/SVFBasicTypes.h
++++ b/include/Util/SVFBasicTypes.h
+@@ -32,7 +32,7 @@
+ #define INCLUDE_UTIL_SVFBASICTYPES_H_
+ 
+ #include <llvm/ADT/DenseSet.h>		// for dense map, set
+-#include <llvm/ADT/SparseBitVector.h>	// for points-to
++#include <Util/SparseBitVector64.h>	// for points-to
+ #include <llvm/Support/raw_ostream.h>	// for output
+ #include <llvm/Support/CommandLine.h>	// for command line options
+ #include <llvm/ADT/StringMap.h>	// for StringMap
+@@ -50,13 +50,13 @@ typedef unsigned long long u64_t;
+ typedef signed s32_t;
+ typedef signed long Size_t;
+ 
+-typedef u32_t NodeID;
+-typedef u32_t EdgeID;
+-typedef unsigned SymID;
+-typedef unsigned CallSiteID;
+-typedef unsigned ThreadID;
++typedef u64_t NodeID;
++typedef u64_t EdgeID;
++typedef u64_t SymID;
++typedef u64_t CallSiteID;
++typedef u64_t ThreadID;
+ 
+-typedef llvm::SparseBitVector<> NodeBS;
++typedef SparseBitVector64<> NodeBS;
+ typedef NodeBS PointsTo;
+ typedef PointsTo AliasSet;
+ 
+@@ -69,8 +69,8 @@ typedef std::vector<EdgeID> EdgeVector;
+ typedef std::stack<NodeID> NodeStack;
+ typedef std::list<NodeID> NodeList;
+ typedef std::deque<NodeID> NodeDeque;
+-typedef llvm::SmallVector<u32_t,16> SmallVector16;
+-typedef llvm::SmallVector<u32_t,8> SmallVector8;
++typedef llvm::SmallVector<u64_t,16> SmallVector16;
++typedef llvm::SmallVector<u64_t,8> SmallVector8;
+ typedef NodeSet EdgeSet;
+ typedef SmallVector16 CallStrCxt;
+ typedef llvm::StringMap<u32_t> StringMap;
+diff --git a/include/Util/SVFUtil.h b/include/Util/SVFUtil.h
+index 21f876f..16467ed 100644
+--- a/include/Util/SVFUtil.h
++++ b/include/Util/SVFUtil.h
+@@ -53,10 +53,10 @@ inline raw_ostream &errs(){
+ void dumpSet(NodeBS To, raw_ostream & O = SVFUtil::outs());
+ 
+ /// Dump points-to set
+-void dumpPointsToSet(unsigned node, NodeBS To) ;
++void dumpPointsToSet(NodeID node, NodeBS To) ;
+ 
+ /// Dump alias set
+-void dumpAliasSet(unsigned node, NodeBS To) ;
++void dumpAliasSet(NodeID node, NodeBS To) ;
+ 
+ /// Print successful message by converting a string into green string output
+ std::string sucMsg(std::string msg);
+diff --git a/include/Util/SparseBitVector64.h b/include/Util/SparseBitVector64.h
+new file mode 100644
+index 0000000..d26239b
+--- /dev/null
++++ b/include/Util/SparseBitVector64.h
+@@ -0,0 +1,888 @@
++//===- llvm/ADT/SparseBitVector64.h - Efficient Sparse BitVector --*- C++ -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++//
++// This file defines the SparseBitVector64 class.  See the doxygen comment for
++// SparseBitVector64 for more details on the algorithm used.
++//
++//===----------------------------------------------------------------------===//
++
++#ifndef INCLUDE_UTIL_SPARSEBITVECTOR64_H
++#define INCLUDE_UTIL_SPARSEBITVECTOR64_H
++
++#include "llvm/Support/ErrorHandling.h"
++#include "llvm/Support/MathExtras.h"
++#include "llvm/Support/raw_ostream.h"
++#include <cassert>
++#include <climits>
++#include <cstring>
++#include <iterator>
++#include <list>
++
++/// SparseBitVector64 is an implementation of a bitvector that is sparse by only
++/// storing the elements that have non-zero bits set.  In order to make this
++/// fast for the most common cases, SparseBitVector64 is implemented as a linked
++/// list of SparseBitVectorElements.  We maintain a pointer to the last
++/// SparseBitVector64Element accessed (in the form of a list iterator), in order
++/// to make multiple in-order test/set constant time after the first one is
++/// executed.  Note that using vectors to store SparseBitVector64Element's does
++/// not work out very well because it causes insertion in the middle to take
++/// enormous amounts of time with a large amount of bits.  Other structures that
++/// have better worst cases for insertion in the middle (various balanced trees,
++/// etc) do not perform as well in practice as a linked list with this iterator
++/// kept up to date.  They are also significantly more memory intensive.
++
++template <unsigned long ElementSize = 128> struct SparseBitVector64Element {
++public:
++  using BitWord = unsigned long;
++  using size_type = unsigned long;
++  enum {
++    BITWORD_SIZE = sizeof(BitWord) * CHAR_BIT,
++    BITWORDS_PER_ELEMENT = (ElementSize + BITWORD_SIZE - 1) / BITWORD_SIZE,
++    BITS_PER_ELEMENT = ElementSize
++  };
++
++private:
++  // Index of Element in terms of where first bit starts.
++  unsigned long ElementIndex;
++  BitWord Bits[BITWORDS_PER_ELEMENT];
++
++  SparseBitVector64Element() {
++    ElementIndex = ~0U;
++    memset(&Bits[0], 0, sizeof (BitWord) * BITWORDS_PER_ELEMENT);
++  }
++
++public:
++  explicit SparseBitVector64Element(unsigned long Idx) {
++    ElementIndex = Idx;
++    memset(&Bits[0], 0, sizeof (BitWord) * BITWORDS_PER_ELEMENT);
++  }
++
++  // Comparison.
++  bool operator==(const SparseBitVector64Element &RHS) const {
++    if (ElementIndex != RHS.ElementIndex)
++      return false;
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i)
++      if (Bits[i] != RHS.Bits[i])
++        return false;
++    return true;
++  }
++
++  bool operator!=(const SparseBitVector64Element &RHS) const {
++    return !(*this == RHS);
++  }
++
++  // Return the bits that make up word Idx in our element.
++  BitWord word(unsigned long Idx) const {
++    assert(Idx < BITWORDS_PER_ELEMENT);
++    return Bits[Idx];
++  }
++
++  unsigned long index() const {
++    return ElementIndex;
++  }
++
++  bool empty() const {
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i)
++      if (Bits[i])
++        return false;
++    return true;
++  }
++
++  void set(unsigned long Idx) {
++    Bits[Idx / BITWORD_SIZE] |= 1L << (Idx % BITWORD_SIZE);
++  }
++
++  bool test_and_set(unsigned long Idx) {
++    bool old = test(Idx);
++    if (!old) {
++      set(Idx);
++      return true;
++    }
++    return false;
++  }
++
++  void reset(unsigned long Idx) {
++    Bits[Idx / BITWORD_SIZE] &= ~(1L << (Idx % BITWORD_SIZE));
++  }
++
++  bool test(unsigned long Idx) const {
++    return Bits[Idx / BITWORD_SIZE] & (1L << (Idx % BITWORD_SIZE));
++  }
++
++  size_type count() const {
++    unsigned long NumBits = 0;
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i)
++      NumBits += llvm::countPopulation(Bits[i]);
++    return NumBits;
++  }
++
++  /// find_first - Returns the index of the first set bit.
++  long find_first() const {
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i)
++      if (Bits[i] != 0)
++        return i * BITWORD_SIZE + llvm::countTrailingZeros(Bits[i]);
++    llvm_unreachable("Illegal empty element");
++  }
++
++  /// find_last - Returns the index of the last set bit.
++  long find_last() const {
++    for (unsigned long I = 0; I < BITWORDS_PER_ELEMENT; ++I) {
++      unsigned long Idx = BITWORDS_PER_ELEMENT - I - 1;
++      if (Bits[Idx] != 0)
++        return Idx * BITWORD_SIZE + BITWORD_SIZE -
++               countLeadingZeros(Bits[Idx]) - 1;
++    }
++    llvm_unreachable("Illegal empty element");
++  }
++
++  /// find_next - Returns the index of the next set bit starting from the
++  /// "Curr" bit. Returns -1 if the next set bit is not found.
++  long find_next(unsigned long Curr) const {
++    if (Curr >= BITS_PER_ELEMENT)
++      return -1;
++
++    unsigned long WordPos = Curr / BITWORD_SIZE;
++    unsigned long BitPos = Curr % BITWORD_SIZE;
++    BitWord Copy = Bits[WordPos];
++    assert(WordPos <= BITWORDS_PER_ELEMENT
++           && "Word Position outside of element");
++
++    // Mask off previous bits.
++    Copy &= ~0UL << BitPos;
++
++    if (Copy != 0)
++      return WordPos * BITWORD_SIZE + llvm::countTrailingZeros(Copy);
++
++    // Check subsequent words.
++    for (unsigned long i = WordPos+1; i < BITWORDS_PER_ELEMENT; ++i)
++      if (Bits[i] != 0)
++        return i * BITWORD_SIZE + llvm::countTrailingZeros(Bits[i]);
++    return -1;
++  }
++
++  // Union this element with RHS and return true if this one changed.
++  bool unionWith(const SparseBitVector64Element &RHS) {
++    bool changed = false;
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i) {
++      BitWord old = changed ? 0 : Bits[i];
++
++      Bits[i] |= RHS.Bits[i];
++      if (!changed && old != Bits[i])
++        changed = true;
++    }
++    return changed;
++  }
++
++  // Return true if we have any bits in common with RHS
++  bool intersects(const SparseBitVector64Element &RHS) const {
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i) {
++      if (RHS.Bits[i] & Bits[i])
++        return true;
++    }
++    return false;
++  }
++
++  // Intersect this Element with RHS and return true if this one changed.
++  // BecameZero is set to true if this element became all-zero bits.
++  bool intersectWith(const SparseBitVector64Element &RHS,
++                     bool &BecameZero) {
++    bool changed = false;
++    bool allzero = true;
++
++    BecameZero = false;
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i) {
++      BitWord old = changed ? 0 : Bits[i];
++
++      Bits[i] &= RHS.Bits[i];
++      if (Bits[i] != 0)
++        allzero = false;
++
++      if (!changed && old != Bits[i])
++        changed = true;
++    }
++    BecameZero = allzero;
++    return changed;
++  }
++
++  // Intersect this Element with the complement of RHS and return true if this
++  // one changed.  BecameZero is set to true if this element became all-zero
++  // bits.
++  bool intersectWithComplement(const SparseBitVector64Element &RHS,
++                               bool &BecameZero) {
++    bool changed = false;
++    bool allzero = true;
++
++    BecameZero = false;
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i) {
++      BitWord old = changed ? 0 : Bits[i];
++
++      Bits[i] &= ~RHS.Bits[i];
++      if (Bits[i] != 0)
++        allzero = false;
++
++      if (!changed && old != Bits[i])
++        changed = true;
++    }
++    BecameZero = allzero;
++    return changed;
++  }
++
++  // Three argument version of intersectWithComplement that intersects
++  // RHS1 & ~RHS2 into this element
++  void intersectWithComplement(const SparseBitVector64Element &RHS1,
++                               const SparseBitVector64Element &RHS2,
++                               bool &BecameZero) {
++    bool allzero = true;
++
++    BecameZero = false;
++    for (unsigned long i = 0; i < BITWORDS_PER_ELEMENT; ++i) {
++      Bits[i] = RHS1.Bits[i] & ~RHS2.Bits[i];
++      if (Bits[i] != 0)
++        allzero = false;
++    }
++    BecameZero = allzero;
++  }
++};
++
++template <unsigned long ElementSize = 128>
++class SparseBitVector64 {
++  using ElementList = std::list<SparseBitVector64Element<ElementSize>>;
++  using ElementListIter = typename ElementList::iterator;
++  using ElementListConstIter = typename ElementList::const_iterator;
++  enum {
++    BITWORD_SIZE = SparseBitVector64Element<ElementSize>::BITWORD_SIZE
++  };
++
++  ElementList Elements;
++  // Pointer to our current Element. This has no visible effect on the external
++  // state of a SparseBitVector64, it's just used to improve performance in the
++  // common case of testing/modifying bits with similar indices.
++  mutable ElementListIter CurrElementIter;
++
++  // This is like std::lower_bound, except we do linear searching from the
++  // current position.
++  ElementListIter FindLowerBoundImpl(unsigned long ElementIndex) const {
++
++    // We cache a non-const iterator so we're forced to resort to const_cast to
++    // get the begin/end in the case where 'this' is const. To avoid duplication
++    // of code with the only difference being whether the const cast is present
++    // 'this' is always const in this particular function and we sort out the
++    // difference in FindLowerBound and FindLowerBoundConst.
++    ElementListIter Begin =
++        const_cast<SparseBitVector64<ElementSize> *>(this)->Elements.begin();
++    ElementListIter End =
++        const_cast<SparseBitVector64<ElementSize> *>(this)->Elements.end();
++
++    if (Elements.empty()) {
++      CurrElementIter = Begin;
++      return CurrElementIter;
++    }
++
++    // Make sure our current iterator is valid.
++    if (CurrElementIter == End)
++      --CurrElementIter;
++
++    // Search from our current iterator, either backwards or forwards,
++    // depending on what element we are looking for.
++    ElementListIter ElementIter = CurrElementIter;
++    if (CurrElementIter->index() == ElementIndex) {
++      return ElementIter;
++    } else if (CurrElementIter->index() > ElementIndex) {
++      while (ElementIter != Begin
++             && ElementIter->index() > ElementIndex)
++        --ElementIter;
++    } else {
++      while (ElementIter != End &&
++             ElementIter->index() < ElementIndex)
++        ++ElementIter;
++    }
++    CurrElementIter = ElementIter;
++    return ElementIter;
++  }
++  ElementListConstIter FindLowerBoundConst(unsigned long ElementIndex) const {
++    return FindLowerBoundImpl(ElementIndex);
++  }
++  ElementListIter FindLowerBound(unsigned long ElementIndex) {
++    return FindLowerBoundImpl(ElementIndex);
++  }
++
++  // Iterator to walk set bits in the bitmap.  This iterator is a lot uglier
++  // than it would be, in order to be efficient.
++  class SparseBitVectorIterator {
++  private:
++    bool AtEnd;
++
++    const SparseBitVector64<ElementSize> *BitVector = nullptr;
++
++    // Current element inside of bitmap.
++    ElementListConstIter Iter;
++
++    // Current bit number inside of our bitmap.
++    unsigned long BitNumber;
++
++    // Current word number inside of our element.
++    unsigned long WordNumber;
++
++    // Current bits from the element.
++    typename SparseBitVector64Element<ElementSize>::BitWord Bits;
++
++    // Move our iterator to the first non-zero bit in the bitmap.
++    void AdvanceToFirstNonZero() {
++      if (AtEnd)
++        return;
++      if (BitVector->Elements.empty()) {
++        AtEnd = true;
++        return;
++      }
++      Iter = BitVector->Elements.begin();
++      BitNumber = Iter->index() * ElementSize;
++      unsigned long BitPos = Iter->find_first();
++      BitNumber += BitPos;
++      WordNumber = (BitNumber % ElementSize) / BITWORD_SIZE;
++      Bits = Iter->word(WordNumber);
++      Bits >>= BitPos % BITWORD_SIZE;
++    }
++
++    // Move our iterator to the next non-zero bit.
++    void AdvanceToNextNonZero() {
++      if (AtEnd)
++        return;
++
++      while (Bits && !(Bits & 1)) {
++        Bits >>= 1;
++        BitNumber += 1;
++      }
++
++      // See if we ran out of Bits in this word.
++      if (!Bits) {
++        long NextSetBitNumber = Iter->find_next(BitNumber % ElementSize) ;
++        // If we ran out of set bits in this element, move to next element.
++        if (NextSetBitNumber == -1 || (BitNumber % ElementSize == 0)) {
++          ++Iter;
++          WordNumber = 0;
++
++          // We may run out of elements in the bitmap.
++          if (Iter == BitVector->Elements.end()) {
++            AtEnd = true;
++            return;
++          }
++          // Set up for next non-zero word in bitmap.
++          BitNumber = Iter->index() * ElementSize;
++          NextSetBitNumber = Iter->find_first();
++          BitNumber += NextSetBitNumber;
++          WordNumber = (BitNumber % ElementSize) / BITWORD_SIZE;
++          Bits = Iter->word(WordNumber);
++          Bits >>= NextSetBitNumber % BITWORD_SIZE;
++        } else {
++          WordNumber = (NextSetBitNumber % ElementSize) / BITWORD_SIZE;
++          Bits = Iter->word(WordNumber);
++          Bits >>= NextSetBitNumber % BITWORD_SIZE;
++          BitNumber = Iter->index() * ElementSize;
++          BitNumber += NextSetBitNumber;
++        }
++      }
++    }
++
++  public:
++    SparseBitVectorIterator() = default;
++
++    SparseBitVectorIterator(const SparseBitVector64<ElementSize> *RHS,
++                            bool end = false):BitVector(RHS) {
++      Iter = BitVector->Elements.begin();
++      BitNumber = 0;
++      Bits = 0;
++      WordNumber = ~0;
++      AtEnd = end;
++      AdvanceToFirstNonZero();
++    }
++
++    // Preincrement.
++    inline SparseBitVectorIterator& operator++() {
++      ++BitNumber;
++      Bits >>= 1;
++      AdvanceToNextNonZero();
++      return *this;
++    }
++
++    // Postincrement.
++    inline SparseBitVectorIterator operator++(int) {
++      SparseBitVectorIterator tmp = *this;
++      ++*this;
++      return tmp;
++    }
++
++    // Return the current set bit number.
++    unsigned long operator*() const {
++      return BitNumber;
++    }
++
++    bool operator==(const SparseBitVectorIterator &RHS) const {
++      // If they are both at the end, ignore the rest of the fields.
++      if (AtEnd && RHS.AtEnd)
++        return true;
++      // Otherwise they are the same if they have the same bit number and
++      // bitmap.
++      return AtEnd == RHS.AtEnd && RHS.BitNumber == BitNumber;
++    }
++
++    bool operator!=(const SparseBitVectorIterator &RHS) const {
++      return !(*this == RHS);
++    }
++  };
++
++public:
++  using iterator = SparseBitVectorIterator;
++
++  SparseBitVector64() : Elements(), CurrElementIter(Elements.begin()) {}
++
++  SparseBitVector64(const SparseBitVector64 &RHS)
++      : Elements(RHS.Elements), CurrElementIter(Elements.begin()) {}
++  SparseBitVector64(SparseBitVector64 &&RHS)
++      : Elements(std::move(RHS.Elements)), CurrElementIter(Elements.begin()) {}
++
++  // Clear.
++  void clear() {
++    Elements.clear();
++  }
++
++  // Assignment
++  SparseBitVector64& operator=(const SparseBitVector64& RHS) {
++    if (this == &RHS)
++      return *this;
++
++    Elements = RHS.Elements;
++    CurrElementIter = Elements.begin();
++    return *this;
++  }
++  SparseBitVector64 &operator=(SparseBitVector64 &&RHS) {
++    Elements = std::move(RHS.Elements);
++    CurrElementIter = Elements.begin();
++    return *this;
++  }
++
++  // Test, Reset, and Set a bit in the bitmap.
++  bool test(unsigned long Idx) const {
++    if (Elements.empty())
++      return false;
++
++    unsigned long ElementIndex = Idx / ElementSize;
++    ElementListConstIter ElementIter = FindLowerBoundConst(ElementIndex);
++
++    // If we can't find an element that is supposed to contain this bit, there
++    // is nothing more to do.
++    if (ElementIter == Elements.end() ||
++        ElementIter->index() != ElementIndex)
++      return false;
++    return ElementIter->test(Idx % ElementSize);
++  }
++
++  void reset(unsigned long Idx) {
++    if (Elements.empty())
++      return;
++
++    unsigned long ElementIndex = Idx / ElementSize;
++    ElementListIter ElementIter = FindLowerBound(ElementIndex);
++
++    // If we can't find an element that is supposed to contain this bit, there
++    // is nothing more to do.
++    if (ElementIter == Elements.end() ||
++        ElementIter->index() != ElementIndex)
++      return;
++    ElementIter->reset(Idx % ElementSize);
++
++    // When the element is zeroed out, delete it.
++    if (ElementIter->empty()) {
++      ++CurrElementIter;
++      Elements.erase(ElementIter);
++    }
++  }
++
++  void set(unsigned long Idx) {
++    unsigned long ElementIndex = Idx / ElementSize;
++    ElementListIter ElementIter;
++    if (Elements.empty()) {
++      ElementIter = Elements.emplace(Elements.end(), ElementIndex);
++    } else {
++      ElementIter = FindLowerBound(ElementIndex);
++
++      if (ElementIter == Elements.end() ||
++          ElementIter->index() != ElementIndex) {
++        // We may have hit the beginning of our SparseBitVector64, in which case,
++        // we may need to insert right after this element, which requires moving
++        // the current iterator forward one, because insert does insert before.
++        if (ElementIter != Elements.end() &&
++            ElementIter->index() < ElementIndex)
++          ++ElementIter;
++        ElementIter = Elements.emplace(ElementIter, ElementIndex);
++      }
++    }
++    CurrElementIter = ElementIter;
++
++    ElementIter->set(Idx % ElementSize);
++  }
++
++  bool test_and_set(unsigned long Idx) {
++    bool old = test(Idx);
++    if (!old) {
++      set(Idx);
++      return true;
++    }
++    return false;
++  }
++
++  bool operator!=(const SparseBitVector64 &RHS) const {
++    return !(*this == RHS);
++  }
++
++  bool operator==(const SparseBitVector64 &RHS) const {
++    ElementListConstIter Iter1 = Elements.begin();
++    ElementListConstIter Iter2 = RHS.Elements.begin();
++
++    for (; Iter1 != Elements.end() && Iter2 != RHS.Elements.end();
++         ++Iter1, ++Iter2) {
++      if (*Iter1 != *Iter2)
++        return false;
++    }
++    return Iter1 == Elements.end() && Iter2 == RHS.Elements.end();
++  }
++
++  // Union our bitmap with the RHS and return true if we changed.
++  bool operator|=(const SparseBitVector64 &RHS) {
++    if (this == &RHS)
++      return false;
++
++    bool changed = false;
++    ElementListIter Iter1 = Elements.begin();
++    ElementListConstIter Iter2 = RHS.Elements.begin();
++
++    // If RHS is empty, we are done
++    if (RHS.Elements.empty())
++      return false;
++
++    while (Iter2 != RHS.Elements.end()) {
++      if (Iter1 == Elements.end() || Iter1->index() > Iter2->index()) {
++        Elements.insert(Iter1, *Iter2);
++        ++Iter2;
++        changed = true;
++      } else if (Iter1->index() == Iter2->index()) {
++        changed |= Iter1->unionWith(*Iter2);
++        ++Iter1;
++        ++Iter2;
++      } else {
++        ++Iter1;
++      }
++    }
++    CurrElementIter = Elements.begin();
++    return changed;
++  }
++
++  // Intersect our bitmap with the RHS and return true if ours changed.
++  bool operator&=(const SparseBitVector64 &RHS) {
++    if (this == &RHS)
++      return false;
++
++    bool changed = false;
++    ElementListIter Iter1 = Elements.begin();
++    ElementListConstIter Iter2 = RHS.Elements.begin();
++
++    // Check if both bitmaps are empty.
++    if (Elements.empty() && RHS.Elements.empty())
++      return false;
++
++    // Loop through, intersecting as we go, erasing elements when necessary.
++    while (Iter2 != RHS.Elements.end()) {
++      if (Iter1 == Elements.end()) {
++        CurrElementIter = Elements.begin();
++        return changed;
++      }
++
++      if (Iter1->index() > Iter2->index()) {
++        ++Iter2;
++      } else if (Iter1->index() == Iter2->index()) {
++        bool BecameZero;
++        changed |= Iter1->intersectWith(*Iter2, BecameZero);
++        if (BecameZero) {
++          ElementListIter IterTmp = Iter1;
++          ++Iter1;
++          Elements.erase(IterTmp);
++        } else {
++          ++Iter1;
++        }
++        ++Iter2;
++      } else {
++        ElementListIter IterTmp = Iter1;
++        ++Iter1;
++        Elements.erase(IterTmp);
++        changed = true;
++      }
++    }
++    if (Iter1 != Elements.end()) {
++      Elements.erase(Iter1, Elements.end());
++      changed = true;
++    }
++    CurrElementIter = Elements.begin();
++    return changed;
++  }
++
++  // Intersect our bitmap with the complement of the RHS and return true
++  // if ours changed.
++  bool intersectWithComplement(const SparseBitVector64 &RHS) {
++    if (this == &RHS) {
++      if (!empty()) {
++        clear();
++        return true;
++      }
++      return false;
++    }
++
++    bool changed = false;
++    ElementListIter Iter1 = Elements.begin();
++    ElementListConstIter Iter2 = RHS.Elements.begin();
++
++    // If either our bitmap or RHS is empty, we are done
++    if (Elements.empty() || RHS.Elements.empty())
++      return false;
++
++    // Loop through, intersecting as we go, erasing elements when necessary.
++    while (Iter2 != RHS.Elements.end()) {
++      if (Iter1 == Elements.end()) {
++        CurrElementIter = Elements.begin();
++        return changed;
++      }
++
++      if (Iter1->index() > Iter2->index()) {
++        ++Iter2;
++      } else if (Iter1->index() == Iter2->index()) {
++        bool BecameZero;
++        changed |= Iter1->intersectWithComplement(*Iter2, BecameZero);
++        if (BecameZero) {
++          ElementListIter IterTmp = Iter1;
++          ++Iter1;
++          Elements.erase(IterTmp);
++        } else {
++          ++Iter1;
++        }
++        ++Iter2;
++      } else {
++        ++Iter1;
++      }
++    }
++    CurrElementIter = Elements.begin();
++    return changed;
++  }
++
++  bool intersectWithComplement(const SparseBitVector64<ElementSize> *RHS) const {
++    return intersectWithComplement(*RHS);
++  }
++
++  //  Three argument version of intersectWithComplement.
++  //  Result of RHS1 & ~RHS2 is stored into this bitmap.
++  void intersectWithComplement(const SparseBitVector64<ElementSize> &RHS1,
++                               const SparseBitVector64<ElementSize> &RHS2)
++  {
++    if (this == &RHS1) {
++      intersectWithComplement(RHS2);
++      return;
++    } else if (this == &RHS2) {
++      SparseBitVector64 RHS2Copy(RHS2);
++      intersectWithComplement(RHS1, RHS2Copy);
++      return;
++    }
++
++    Elements.clear();
++    CurrElementIter = Elements.begin();
++    ElementListConstIter Iter1 = RHS1.Elements.begin();
++    ElementListConstIter Iter2 = RHS2.Elements.begin();
++
++    // If RHS1 is empty, we are done
++    // If RHS2 is empty, we still have to copy RHS1
++    if (RHS1.Elements.empty())
++      return;
++
++    // Loop through, intersecting as we go, erasing elements when necessary.
++    while (Iter2 != RHS2.Elements.end()) {
++      if (Iter1 == RHS1.Elements.end())
++        return;
++
++      if (Iter1->index() > Iter2->index()) {
++        ++Iter2;
++      } else if (Iter1->index() == Iter2->index()) {
++        bool BecameZero = false;
++        Elements.emplace_back(Iter1->index());
++        Elements.back().intersectWithComplement(*Iter1, *Iter2, BecameZero);
++        if (BecameZero)
++          Elements.pop_back();
++        ++Iter1;
++        ++Iter2;
++      } else {
++        Elements.push_back(*Iter1++);
++      }
++    }
++
++    // copy the remaining elements
++    std::copy(Iter1, RHS1.Elements.end(), std::back_inserter(Elements));
++  }
++
++  void intersectWithComplement(const SparseBitVector64<ElementSize> *RHS1,
++                               const SparseBitVector64<ElementSize> *RHS2) {
++    intersectWithComplement(*RHS1, *RHS2);
++  }
++
++  bool intersects(const SparseBitVector64<ElementSize> *RHS) const {
++    return intersects(*RHS);
++  }
++
++  // Return true if we share any bits in common with RHS
++  bool intersects(const SparseBitVector64<ElementSize> &RHS) const {
++    ElementListConstIter Iter1 = Elements.begin();
++    ElementListConstIter Iter2 = RHS.Elements.begin();
++
++    // Check if both bitmaps are empty.
++    if (Elements.empty() && RHS.Elements.empty())
++      return false;
++
++    // Loop through, intersecting stopping when we hit bits in common.
++    while (Iter2 != RHS.Elements.end()) {
++      if (Iter1 == Elements.end())
++        return false;
++
++      if (Iter1->index() > Iter2->index()) {
++        ++Iter2;
++      } else if (Iter1->index() == Iter2->index()) {
++        if (Iter1->intersects(*Iter2))
++          return true;
++        ++Iter1;
++        ++Iter2;
++      } else {
++        ++Iter1;
++      }
++    }
++    return false;
++  }
++
++  // Return true iff all bits set in this SparseBitVector64 are
++  // also set in RHS.
++  bool contains(const SparseBitVector64<ElementSize> &RHS) const {
++    SparseBitVector64<ElementSize> Result(*this);
++    Result &= RHS;
++    return (Result == RHS);
++  }
++
++  // Return the first set bit in the bitmap.  Return -1 if no bits are set.
++  long find_first() const {
++    if (Elements.empty())
++      return -1;
++    const SparseBitVector64Element<ElementSize> &First = *(Elements.begin());
++    return (First.index() * ElementSize) + First.find_first();
++  }
++
++  // Return the last set bit in the bitmap.  Return -1 if no bits are set.
++  long find_last() const {
++    if (Elements.empty())
++      return -1;
++    const SparseBitVector64Element<ElementSize> &Last = *(Elements.rbegin());
++    return (Last.index() * ElementSize) + Last.find_last();
++  }
++
++  // Return true if the SparseBitVector64 is empty
++  bool empty() const {
++    return Elements.empty();
++  }
++
++  unsigned long count() const {
++    unsigned long BitCount = 0;
++    for (ElementListConstIter Iter = Elements.begin();
++         Iter != Elements.end();
++         ++Iter)
++      BitCount += Iter->count();
++
++    return BitCount;
++  }
++
++  iterator begin() const {
++    return iterator(this);
++  }
++
++  iterator end() const {
++    return iterator(this, true);
++  }
++};
++
++// Convenience functions to allow Or and And without dereferencing in the user
++// code.
++
++template <unsigned long ElementSize>
++inline bool operator |=(SparseBitVector64<ElementSize> &LHS,
++                        const SparseBitVector64<ElementSize> *RHS) {
++  return LHS |= *RHS;
++}
++
++template <unsigned long ElementSize>
++inline bool operator |=(SparseBitVector64<ElementSize> *LHS,
++                        const SparseBitVector64<ElementSize> &RHS) {
++  return LHS->operator|=(RHS);
++}
++
++template <unsigned long ElementSize>
++inline bool operator &=(SparseBitVector64<ElementSize> *LHS,
++                        const SparseBitVector64<ElementSize> &RHS) {
++  return LHS->operator&=(RHS);
++}
++
++template <unsigned long ElementSize>
++inline bool operator &=(SparseBitVector64<ElementSize> &LHS,
++                        const SparseBitVector64<ElementSize> *RHS) {
++  return LHS &= *RHS;
++}
++
++// Convenience functions for infix union, intersection, difference operators.
++
++template <unsigned long ElementSize>
++inline SparseBitVector64<ElementSize>
++operator|(const SparseBitVector64<ElementSize> &LHS,
++          const SparseBitVector64<ElementSize> &RHS) {
++  SparseBitVector64<ElementSize> Result(LHS);
++  Result |= RHS;
++  return Result;
++}
++
++template <unsigned long ElementSize>
++inline SparseBitVector64<ElementSize>
++operator&(const SparseBitVector64<ElementSize> &LHS,
++          const SparseBitVector64<ElementSize> &RHS) {
++  SparseBitVector64<ElementSize> Result(LHS);
++  Result &= RHS;
++  return Result;
++}
++
++template <unsigned long ElementSize>
++inline SparseBitVector64<ElementSize>
++operator-(const SparseBitVector64<ElementSize> &LHS,
++          const SparseBitVector64<ElementSize> &RHS) {
++  SparseBitVector64<ElementSize> Result;
++  Result.intersectWithComplement(LHS, RHS);
++  return Result;
++}
++
++// Dump a SparseBitVector64 to a stream
++template <unsigned long ElementSize>
++void dump(const SparseBitVector64<ElementSize> &LHS, llvm::raw_ostream &out) {
++  out << "[";
++
++  typename SparseBitVector64<ElementSize>::iterator bi = LHS.begin(),
++    be = LHS.end();
++  if (bi != be) {
++    out << *bi;
++    for (++bi; bi != be; ++bi) {
++      out << " " << *bi;
++    }
++  }
++  out << "]\n";
++}
++
++#endif // INCLUDE_UTIL_SPARSEBITVECTOR64_H
+diff --git a/lib/Graphs/ConsG.cpp b/lib/Graphs/ConsG.cpp
+index f347f8b..e953f07 100644
+--- a/lib/Graphs/ConsG.cpp
++++ b/lib/Graphs/ConsG.cpp
+@@ -501,8 +501,8 @@ void ConstraintGraph::print() {
+ 			outs() << ngep->getSrcID() << " -- NormalGep (" << ngep->getOffset()
+ 					<< ") --> " << ngep->getDstID() << "\n";
+ 		} else if (VariantGepCGEdge* vgep = SVFUtil::dyn_cast<VariantGepCGEdge>(*iter)) {
+-			outs() << ngep->getSrcID() << " -- VarintGep --> "
+-					<< ngep->getDstID() << "\n";
++			outs() << vgep->getSrcID() << " -- VarintGep --> "
++					<< vgep->getDstID() << "\n";
+ 		} else
+ 			assert(false && "wrong constraint edge kind!");
+ 	}
+diff --git a/lib/Graphs/PAG.cpp b/lib/Graphs/PAG.cpp
+index 2bc45bb..951f3da 100644
+--- a/lib/Graphs/PAG.cpp
++++ b/lib/Graphs/PAG.cpp
+@@ -35,6 +35,8 @@ using namespace SVFUtil;
+ 
+ static llvm::cl::opt<bool> HANDBLACKHOLE("blk", llvm::cl::init(false),
+                                    llvm::cl::desc("Hanle blackhole edge"));
++static llvm::cl::opt<bool> FirstFieldEqBase("ff-eq-base", llvm::cl::init(true),
++        llvm::cl::desc("Treat base objects as their first fields"));
+ 
+ 
+ u64_t PAGEdge::callEdgeLabelCounter = 0;
+@@ -306,6 +308,9 @@ NodeID PAG::getGepObjNode(NodeID id, const LocationSet& ls) {
+ NodeID PAG::getGepObjNode(const MemObj* obj, const LocationSet& ls) {
+     NodeID base = getObjectNode(obj);
+ 
++    // Base and first field are the same memory location.
++    if (FirstFieldEqBase && ls.getOffset() == 0) return base;
++
+     /// if this obj is field-insensitive, just return the field-insensitive node.
+     if (obj->isFieldInsensitive())
+         return getFIObjNode(obj);
+diff --git a/lib/SVF-FE/SymbolTableInfo.cpp b/lib/SVF-FE/SymbolTableInfo.cpp
+index 4b2422e..581df39 100644
+--- a/lib/SVF-FE/SymbolTableInfo.cpp
++++ b/lib/SVF-FE/SymbolTableInfo.cpp
+@@ -45,7 +45,7 @@ DataLayout* SymbolTableInfo::dl = NULL;
+ SymbolTableInfo* SymbolTableInfo::symlnfo = NULL;
+ SymID SymbolTableInfo::totalSymNum = 0;
+ 
+-static llvm::cl::opt<unsigned> maxFieldNumLimit("fieldlimit",  llvm::cl::init(512),
++static llvm::cl::opt<unsigned long long> maxFieldNumLimit("fieldlimit",  llvm::cl::init(512),
+         llvm::cl::desc("Maximum field number for field sensitive analysis"));
+ 
+ static llvm::cl::opt<bool> LocMemModel("locMM", llvm::cl::init(false),
+diff --git a/lib/Util/SVFUtil.cpp b/lib/Util/SVFUtil.cpp
+index a8eea94..4d92370 100644
+--- a/lib/Util/SVFUtil.cpp
++++ b/lib/Util/SVFUtil.cpp
+@@ -93,7 +93,7 @@ std::string SVFUtil::pasMsg(std::string msg) {
+ /*!
+  * Dump points-to set
+  */
+-void SVFUtil::dumpPointsToSet(unsigned node, NodeBS bs) {
++void SVFUtil::dumpPointsToSet(NodeID node, NodeBS bs) {
+     outs() << "node " << node << " points-to: {";
+     dumpSet(bs);
+     outs() << "}\n";
+@@ -103,7 +103,7 @@ void SVFUtil::dumpPointsToSet(unsigned node, NodeBS bs) {
+ /*!
+  * Dump alias set
+  */
+-void SVFUtil::dumpAliasSet(unsigned node, NodeBS bs) {
++void SVFUtil::dumpAliasSet(NodeID node, NodeBS bs) {
+     outs() << "node " << node << " alias set: {";
+     dumpSet(bs);
+     outs() << "}\n";
+diff --git a/lib/WPA/Andersen.cpp b/lib/WPA/Andersen.cpp
+index f98084f..bd25b92 100644
+--- a/lib/WPA/Andersen.cpp
++++ b/lib/WPA/Andersen.cpp
+@@ -29,6 +29,7 @@
+ 
+ #include "SVF-FE/LLVMUtil.h"
+ #include "WPA/Andersen.h"
++#include "SVF-FE/SymbolTableInfo.h"
+ 
+ using namespace SVFUtil;
+ 
+@@ -61,6 +62,8 @@ static llvm::cl::opt<bool> PtsDiff("diff",  llvm::cl::init(true),
+                                     llvm::cl::desc("Disable diff pts propagation"));
+ static llvm::cl::opt<bool> MergePWC("merge-pwc",  llvm::cl::init(true),
+                                         llvm::cl::desc("Enable PWC in graph solving"));
++static llvm::cl::opt<bool> AllowFI("allow-fi-prom",  llvm::cl::init(false),
++                                    llvm::cl::desc("Allow object to be promoted to field insensitive ones"));
+ 
+ 
+ /*!
+@@ -279,13 +282,28 @@ bool Andersen::processGepPts(PointsTo& pts, const GepCGEdge* edge)
+             /// If a pointer connected by a variant gep edge,
+             /// then set this memory object to be field insensitive
+             if (SVFUtil::isa<VariantGepCGEdge>(edge)) {
+-                if (consCG->isFieldInsensitiveObj(ptd) == false) {
+-                    consCG->setObjFieldInsensitive(ptd);
+-                    consCG->addNodeToBeCollapsed(consCG->getBaseObjNode(ptd));
++                if (AllowFI) {
++                    if (consCG->isFieldInsensitiveObj(ptd) == false) {
++                        consCG->setObjFieldInsensitive(ptd);
++                        consCG->addNodeToBeCollapsed(consCG->getBaseObjNode(ptd));
++                    }
++                    // add the field-insensitive node into pts.
++                    NodeID baseId = consCG->getFIObjNode(ptd);
++                    tmpDstPts.set(baseId);
++                } else {
++                    const Type *T = pag->getBaseObj(ptd)->getType();
++                    for (FieldInfo i : SymbolTableInfo::Symbolnfo()->getFlattenFieldInfoVec(T)) {
++                        // Get the base MemObj and create a gepnode from that, for
++                        // every field
++                        // Probably could do better, leveraging the existing gep
++                        // node in the ptd if present, but keep it simple
++                        NodeID gep =  pag->getGepObjNode(pag->getBaseObj(ptd),LocationSet(i));
++                        /// Create a node when it is (1) not exist on graph and (2) not merged
++                        if(consCG->sccRepNode(gep)==gep && consCG->hasConstraintNode(gep)==false)
++                            consCG->addConstraintNode(new ConstraintNode(gep),gep);
++                        tmpDstPts.set(gep);
++                    }
+                 }
+-                // add the field-insensitive node into pts.
+-                NodeID baseId = consCG->getFIObjNode(ptd);
+-                tmpDstPts.set(baseId);
+             }
+             /// Otherwise process invariant (normal) gep
+             // TODO: after the node is set to field insensitive, handling invaraint gep edge may lose precision
+-- 
+2.17.1
+

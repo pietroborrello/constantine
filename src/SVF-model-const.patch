@@ -1,0 +1,76 @@
+From 17fd0e10cf3bb97bd397b94c92ea9c1d2e4977ea Mon Sep 17 00:00:00 2001
+From: Pietro Borrello <borrello@diag.uniroma1.it>
+Date: Thu, 16 Jul 2020 11:32:11 +0200
+Subject: backport modelConsts patch
+
+---
+ include/Graphs/PAGNode.h       | 3 ++-
+ include/SVF-FE/LLVMUtil.h      | 5 +++++
+ lib/SVF-FE/SymbolTableInfo.cpp | 6 +++---
+ 3 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/include/Graphs/PAGNode.h b/include/Graphs/PAGNode.h
+index ef08119..b585040 100644
+--- a/include/Graphs/PAGNode.h
++++ b/include/Graphs/PAGNode.h
+@@ -33,6 +33,7 @@
+ #include "Graphs/GenericGraph.h"
+ #include "MemoryModel/MemModel.h"
+ #include "SVF-FE/SymbolTableInfo.h"
++#include "SVF-FE/LLVMUtil.h"
+ 
+ /*
+  * PAG node
+@@ -113,7 +114,7 @@ public:
+     /// Whether it is constant data, i.e., "0", "1.001", "str"
+ 	inline bool isConstantData() const {
+ 		if (hasValue())
+-			return SVFUtil::isa<ConstantData>(value) || SVFUtil::isa<ConstantAggregate>(value);
++			return SVFUtil::isConstantData(value);
+ 		else
+ 			return false;
+ 	}
+diff --git a/include/SVF-FE/LLVMUtil.h b/include/SVF-FE/LLVMUtil.h
+index c69941b..af1967a 100644
+--- a/include/SVF-FE/LLVMUtil.h
++++ b/include/SVF-FE/LLVMUtil.h
+@@ -329,6 +329,11 @@ inline const Value* getTaskDataAtHareParForSite(const Instruction *inst) {
+ /// Return true if this value refers to a object
+ bool isObject (const Value * ref);
+ 
++/// Return true if the value refers to constant data, e.g., i32 0
++inline bool isConstantData(const Value* val)
++{
++    return SVFUtil::isa<ConstantData>(val) || SVFUtil::isa<ConstantAggregate>(val);
++}
+ 
+ /// Method for dead function, which does not have any possible caller
+ /// function address is not taken and never be used in call or invoke instruction
+diff --git a/lib/SVF-FE/SymbolTableInfo.cpp b/lib/SVF-FE/SymbolTableInfo.cpp
+index 1cfd59f..4b2422e 100644
+--- a/lib/SVF-FE/SymbolTableInfo.cpp
++++ b/lib/SVF-FE/SymbolTableInfo.cpp
+@@ -590,9 +590,9 @@ void SymbolTableInfo::collectVal(const Value *val) {
+ void SymbolTableInfo::collectObj(const Value *val) {
+     ValueToIDMapTy::iterator iter = objSymMap.find(val);
+     if (iter == objSymMap.end()) {
+-        // if the object pointed by the pointer is a constant object (e.g. string)
++        // if the object pointed by the pointer is a constant data (e.g., i32 0) or a global constant object (e.g. string)
+         // then we treat them as one ConstantObj
+-        if(isConstantObjSym(val) && !getModelConstants()) {
++        if(isConstantData(val) || (isConstantObjSym(val) && !getModelConstants())) {
+             objSymMap.insert(std::make_pair(val, constantSymID()));
+         }
+         // otherwise, we will create an object for each abstract memory location
+@@ -677,7 +677,7 @@ bool SymbolTableInfo::isConstantObjSym(const Value *val) {
+             return v->isConstant();
+         }
+     }
+-    return SVFUtil::isa<ConstantData>(val) || SVFUtil::isa<ConstantAggregate>(val);
++    return SVFUtil::isConstantData(val);
+ }
+ 
+ 
+-- 
+2.17.1
+

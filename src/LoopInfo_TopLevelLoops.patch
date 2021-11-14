@@ -1,0 +1,29 @@
+From 9d586dd3f398cb01c74e77107b0a69fda5833cfe Mon Sep 17 00:00:00 2001
+From: Pietro Borrello <borrello@diag.uniroma1.it>
+Date: Tue, 8 Sep 2020 20:52:43 +0200
+Subject: Insert public accessor for TopLevelLoops in LoopInfo
+
+---
+ llvm/include/llvm/Analysis/LoopInfo.h | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/llvm/include/llvm/Analysis/LoopInfo.h b/llvm/include/llvm/Analysis/LoopInfo.h
+index 584eb3a8c85..f085d4b9e79 100644
+--- a/llvm/include/llvm/Analysis/LoopInfo.h
++++ b/llvm/include/llvm/Analysis/LoopInfo.h
+@@ -912,6 +912,12 @@ public:
+     return L && L->getHeader() == BB;
+   }
+ 
++  /// Return the top-level loops.
++  const std::vector<LoopT *> &getTopLevelLoops() const { return TopLevelLoops; }
++
++  /// Return the top-level loops.
++  std::vector<LoopT *> &getTopLevelLoopsVector() { return TopLevelLoops; }
++
+   /// This removes the specified top-level loop from this loop info object.
+   /// The loop is not deleted, as it will presumably be inserted into
+   /// another loop.
+-- 
+2.17.1
+

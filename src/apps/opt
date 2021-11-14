@@ -1,0 +1,19 @@
+#!/bin/sh
+
+ARGS=""
+
+for i in $*
+do
+	arg="$i"
+	c=`echo $arg | head -c 1`
+	if [ "$c" = "-" ]; then
+		pass=`echo $arg | tail -c +2`
+		if [ -f ../../bin/$pass.so ]; then
+			arg="-load=../../bin/$pass.so -$pass"
+		fi
+	fi
+	ARGS="$ARGS $arg"
+done
+
+echo opt $ARGS
+opt $ARGS
