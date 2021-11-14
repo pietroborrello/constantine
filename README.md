@@ -46,6 +46,11 @@ It will automatically:
 4. automatically protect all the branches, loops and memory accesses that the profiling phase identified as secret dependent.
 5. produce a hardened binary.
 
+**NOTICE1**: Constantine protects only the branches, memory accesses and loops that observes being secret sensitive during the random-input profiling phase. A simple random testing is usually enough for cryptographic algorithms, but beware that if a branch/memory-access is not explored it will not be protected, even if potentially secret sensitive. Provide an actual test suite to constantine in case random testing is not effective in exploring program states. 
+
+**NOTICE2**: All inputs are considered secret sensitive by default. Constantine observes input flowing trough explicit `read`, `pread` and `fread`. Add hooks in `./src/lib/dft/hook.c` in case this is not enough.
+
+
 Use `./constantine` for C sources and `./constantine++` for C++.
 
 ### example output:
