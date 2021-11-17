@@ -16,7 +16,7 @@ The design behind `Constantine` is described in the paper *Constantine: Automati
 
 ## Getting Started
 
-Compile and install all the LLVM passes:
+Constantine is based on LLVM 9. Compile and install all the LLVM passes:
 
 ```bash
 ./install.sh
