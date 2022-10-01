@@ -14,6 +14,57 @@ This is the high-level architecture of `Constantine`:
 
 The design behind `Constantine` is described in the paper *Constantine: Automatic Side-Channel Resistance Using Efficient Control and Data Flow Linearization* (preprint available [here](http://www.diag.uniroma1.it/~delia/papers/ccs21.pdf) or on [arXiv](https://arxiv.org/abs/2104.10749)) which appeared in the [ACM CCS 2021](https://www.sigsac.org/ccs/CCS2021/) conference. 
 
+## How does Constantine work?
+
+Constantine transforms programs into their constant time equivalent. It can handle *secret dependent branches*, *secret depentent loops* and *secret dependent memory accesses*, i.e., basically everything.
+
+### Secret dependent branches
+
+Constantine rewires secret dependent branches so that both sides are always executed, while propagating only the side-effects of the side that should have been executed.
+
+![image](https://user-images.githubusercontent.com/18199462/193406537-81d02666-08ba-4079-8437-2fce38ce89ac.png)
+
+For example, given an if-else branch, Constantine will make the program always execute both sides, wrap any load and stores to constant time wrappers (`ct_load/ct_store`, more on this later), and propagate side-effects with constant time selection primitives (`ct_select`).
+
+![image](https://user-images.githubusercontent.com/18199462/193406519-b747d931-ca21-46c3-8956-ba41645afbe6.png)
+
+This results in constant time execution of forward control flow that depends on secrets.
+
+### Secret dependent loops
+
+Constantine performs Just-in-Time Loop linearization: it hijacks the loop trip count to dynamically insert padding loop iterations. This avoids leaking secret data through the loop conditions (i.e., how many times a loop is executed).
+
+![image](https://user-images.githubusercontent.com/18199462/193406696-5d7281f8-4776-45c4-afd1-d1b9752aa656.png)
+
+Thus, the number of times a loop gets executed will remain the same for the whole program execution, while avoiding forwarding computation to the visible state during the iterations the loop should not have been executed.
+
+### Secret dependent memory accesses
+
+For each sensitive memory access, Constantine makes the resulting program access all the locations that the original program can possibly reference for any initial input. All while only updating/returning the values the original program was supposed to touch.
+
+![image](https://user-images.githubusercontent.com/18199462/193406979-0046ace8-abf5-4e06-91f3-8db2609e063f.png)
+
+We leverage pointer analysis to map each memory access to the set of objects it may touch, and then leverage fast striding over each object to touch all the possible entries that may be accessed.
+
+![image](https://user-images.githubusercontent.com/18199462/193407055-582db691-b18a-4ca2-97d7-06a0b7cbfc91.png)
+
+While any possible offset is accessed, Constantine makes sure only the location that the program was supposed to access is returned or updated, using constant time primitives.
+This allows us to protect any memory access that may depend on secret values, as any active/passive attacker will always observe the same access pattern across any execution.
+
+### How can all of this scale?!
+
+We spent an *insane* amount of time optimizing this radical design: 
+
+* We leverage dynamic taint analysis to restrict our protection to the only branches/loops/memory accesses in the code that are secret dependent.
+* We leverage precise pointer analysis to identify the exact fields of each object that may be touched in each memory access.
+* We leverage AVX2/AVX512 to perform fast striding over objects.
+* We track the object lifetimes so that the program will stride over only active objects/
+* We leverage function cloning to add context sensitivity to the analyses.
+* We designed all the techniques to be transparent to the compiler, thus it can safely optimize the resulting program.
+* We leverage indirect call promotion and switch lowering to avoid the need of protecting indirect branches.
+* We promote stack variables to globals on non-recursive functions to avoid tracking the lifetime of such stack variables.
+
+
 ## Getting Started
 
 Constantine is based on LLVM 9. Compile and install all the LLVM passes:
