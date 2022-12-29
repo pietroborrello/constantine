@@ -18,6 +18,16 @@ The design behind `Constantine` is described in the paper *Constantine: Automati
 
 Constantine transforms programs into their constant time equivalent. It can handle *secret dependent branches*, *secret depentent loops* and *secret dependent memory accesses*, i.e., basically everything.
 
+### Training Phase
+
+First of all, Constantine needs to observe the original program executing to gather information on:
+- Which parts of the code need to be protected
+- How many times loops in the program are executed (see [Secret dependent loops](#secret-dependent-loops))
+
+This training phase is fundamental for Constantine to scale (protecting only the needed branches) and be precise (protecting all the needed branches).
+
+Thus, the training phase must include meaningful inputs to let Constantine observe all the relevant program paths.
+
 ### Secret dependent branches
 
 Constantine rewires secret dependent branches so that both sides are always executed, while propagating only the side-effects of the side that should have been executed.
